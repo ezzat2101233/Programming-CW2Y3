@@ -1,21 +1,26 @@
 #include <iostream>
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <thread>  // Include thread support
+#include <thread>
+#include <map>  // Include map for client tracking
 
 #pragma comment(lib, "ws2_32.lib")
 
-void handleClient(SOCKET clientSocket) {
+std::map<int, SOCKET> clients;  // Map to store client IDs and sockets
+int clientCounter = 0;  // Counter to assign unique client IDs
+
+void handleClient(int clientId, SOCKET clientSocket) {
     char buffer[1024];
     while (true) {
         int bytesReceived = recv(clientSocket, buffer, 1024, 0);
         if (bytesReceived == SOCKET_ERROR || bytesReceived == 0) {
-            std::cerr << "Error in recv(). Disconnecting client.\n";
+            std::cerr << "Client " << clientId << " disconnected.\n";
+            clients.erase(clientId);  // Remove client from map
             break;
         }
 
         buffer[bytesReceived] = '\0';  // Null-terminate the string
-        std::cout << "Received message: " << buffer << std::endl;
+        std::cout << "Client " << clientId << " sent: " << buffer << std::endl;
 
         // Echo message back to client
         send(clientSocket, buffer, bytesReceived, 0);
@@ -75,26 +80,30 @@ int main() {
             continue;
         }
 
+        // Assign unique ID to client
+        int clientId = ++clientCounter;
+        clients[clientId] = clientSocket;
+
         // Display client info
         char host[NI_MAXHOST];
         char service[NI_MAXSERV];
-        ZeroMemory(host, NI_MAXHOST);  // Same as memset(host, 0, NI_MAXHOST);
+        ZeroMemory(host, NI_MAXHOST);
         ZeroMemory(service, NI_MAXSERV);
 
         if (getnameinfo((struct sockaddr*)&client, sizeof(client), host, NI_MAXHOST, service, NI_MAXSERV, 0) == 0) {
-            std::cout << "Connected to " << host << " on port " << service << std::endl;
+            std::cout << "Client " << clientId << " connected from " << host << " on port " << service << std::endl;
         }
         else {
             inet_ntop(AF_INET, &client.sin_addr, host, NI_MAXHOST);
-            std::cout << "Connected to " << host << " on port " << ntohs(client.sin_port) << std::endl;
+            std::cout << "Client " << clientId << " connected from " << host << " on port " << ntohs(client.sin_port) << std::endl;
         }
 
         // Handle client in a separate thread
-        std::thread clientThread(handleClient, clientSocket);
+        std::thread clientThread(handleClient, clientId, clientSocket);
         clientThread.detach();  // Detach the thread to handle independently
     }
 
-    // Close listening socket (this line may never be reached if server is meant to run indefinitely)
+    // Close listening socket
     closesocket(listeningSocket);
     WSACleanup();
 

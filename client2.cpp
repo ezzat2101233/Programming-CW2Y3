@@ -1,7 +1,7 @@
 #include <iostream>
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <string>  // Include string header for std::string
+#include <string>
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -33,7 +33,7 @@ int main() {
         return 1;
     }
 
-    // Send connection request
+    // Connect to the server
     if (connect(clientSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) == SOCKET_ERROR) {
         std::cerr << "Connect failed: " << WSAGetLastError() << std::endl;
         closesocket(clientSocket);
@@ -41,18 +41,28 @@ int main() {
         return 1;
     }
 
-    // Get message from user
-    std::string userInput;
-    std::cout << "Enter a message to send to the server: ";
-    getline(std::cin, userInput);
+    // Loop to keep the connection open
+    while (true) {
+        // Get message from user
+        std::string userInput;
+        std::cout << "Enter a message to send to the server (type 'exit' to close): ";
+        getline(std::cin, userInput);
 
-    // Send data
-    int bytesSent = send(clientSocket, userInput.c_str(), userInput.length(), 0);
-    if (bytesSent == SOCKET_ERROR) {
-        std::cerr << "Send failed: " << WSAGetLastError() << std::endl;
-    }
-    else {
-        std::cout << "Message sent to server: " << userInput << std::endl;
+        if (userInput == "exit") {
+            break;  // Exit the loop and close the connection
+        }
+
+        // Send data
+        int bytesSent = send(clientSocket, userInput.c_str(), userInput.length(), 0);
+        if (bytesSent == SOCKET_ERROR) {
+            std::cerr << "Send failed: " << WSAGetLastError() << std::endl;
+            closesocket(clientSocket);
+            WSACleanup();
+            return 1;
+        }
+        else {
+            std::cout << "Message sent to server: " << userInput << std::endl;
+        }
     }
 
     // Close socket and cleanup
