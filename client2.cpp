@@ -2,19 +2,18 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <string>
+#include <cstring>
 
 #pragma comment(lib, "ws2_32.lib")
 
 int main() {
     WSADATA wsaData;
 
-    // Initialize Winsock
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-        std::cerr << "WSAStartup failed\n";
+        std::cerr << "WSAStartup failed.\n";
         return 1;
     }
 
-    // Create socket
     SOCKET clientSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (clientSocket == INVALID_SOCKET) {
         std::cerr << "Socket creation failed: " << WSAGetLastError() << std::endl;
@@ -22,37 +21,57 @@ int main() {
         return 1;
     }
 
-    // Server address configuration
     sockaddr_in serverAddress;
     serverAddress.sin_family = AF_INET;
     serverAddress.sin_port = htons(4002);
-    if (inet_pton(AF_INET, "192.168.1.9", &serverAddress.sin_addr) <= 0) {
-        std::cerr << "Invalid address/ Address not supported \n";
-        closesocket(clientSocket);
-        WSACleanup();
-        return 1;
-    }
+    inet_pton(AF_INET, "127.0.0.1", &serverAddress.sin_addr);
 
-    // Connect to the server
     if (connect(clientSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) == SOCKET_ERROR) {
-        std::cerr << "Connect failed: " << WSAGetLastError() << std::endl;
+        std::cerr << "Connection failed: " << WSAGetLastError() << std::endl;
         closesocket(clientSocket);
         WSACleanup();
         return 1;
     }
 
-    // Loop to keep the connection open
+    std::string command;
+    std::cout << "Enter 'SIGNUP <username> <password>' to sign up or 'LOGIN <username> <password>' to login: ";
+    getline(std::cin, command);
+
+    send(clientSocket, command.c_str(), command.length(), 0);
+
+    char buffer[1024];
+    int bytesReceived = recv(clientSocket, buffer, 1024, 0);
+    if (bytesReceived == SOCKET_ERROR || bytesReceived == 0) {
+        std::cerr << "Server disconnected.\n";
+        closesocket(clientSocket);
+        WSACleanup();
+        return 1;
+    }
+
+    buffer[bytesReceived] = '\0';
+    if (strcmp(buffer, "SIGNUP_SUCCESS") == 0 || strcmp(buffer, "LOGIN_SUCCESS") == 0) {
+        std::cout << "Successfully logged in!\n";
+    }
+    else if (strcmp(buffer, "CREDENTIALS_EXISTS") == 0) {
+        std::cout << "Credentials already exist. Please sign up with new ones.\n";
+    }
+    else if (strcmp(buffer, "ACCESS_DENIED") == 0) {
+        std::cout << "Access denied. Please enter valid credentials.\n";
+        closesocket(clientSocket);
+        WSACleanup();
+        return 1;
+    }
+
+    // Now handle chat messages
     while (true) {
-        // Get message from user
         std::string userInput;
-        std::cout << "Enter a message to send to the server (type 'exit' to close): ";
+        std::cout << "Enter a message to send to the server (type 'exit' to quit): ";
         getline(std::cin, userInput);
 
         if (userInput == "exit") {
-            break;  // Exit the loop and close the connection
+            break;
         }
 
-        // Send data
         int bytesSent = send(clientSocket, userInput.c_str(), userInput.length(), 0);
         if (bytesSent == SOCKET_ERROR) {
             std::cerr << "Send failed: " << WSAGetLastError() << std::endl;
@@ -60,12 +79,17 @@ int main() {
             WSACleanup();
             return 1;
         }
-        else {
-            std::cout << "Message sent to server: " << userInput << std::endl;
+
+        int bytesReceived = recv(clientSocket, buffer, 1024, 0);
+        if (bytesReceived == SOCKET_ERROR || bytesReceived == 0) {
+            std::cerr << "Server disconnected.\n";
+            break;
         }
+
+        buffer[bytesReceived] = '\0';
+        std::cout << "Server echoed: " << buffer << std::endl;
     }
 
-    // Close socket and cleanup
     closesocket(clientSocket);
     WSACleanup();
 

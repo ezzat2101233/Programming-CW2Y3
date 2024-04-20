@@ -2,74 +2,105 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <thread>
-#include <map>  // Include map for client tracking
+#include <map>
+#include <fstream>
+#include <sstream>
+#include <cstring>
 
 #pragma comment(lib, "ws2_32.lib")
 
-std::map<int, SOCKET> clients;  // Map to store client IDs and sockets
-int clientCounter = 0;  // Counter to assign unique client IDs
+std::map<int, SOCKET> clients;
+int clientCounter = 0;
+const std::string AUTH_FILE = "Auth.txt";
+
+bool checkCredentials(const std::string& username, const std::string& password) {
+    std::ifstream file(AUTH_FILE);
+    std::string line;
+    while (std::getline(file, line)) {
+        std::istringstream iss(line);
+        std::string storedUsername, storedPassword;
+        if (iss >> storedUsername >> storedPassword) {
+            if (storedUsername == username && storedPassword == password) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool addUser(const std::string& username, const std::string& password) {
+    if (checkCredentials(username, password)) {
+        return false;
+    }
+    std::ofstream file(AUTH_FILE, std::ios::app);
+    file << username << " " << password << std::endl;
+    return true;
+}
 
 void handleClient(int clientId, SOCKET clientSocket) {
     char buffer[1024];
+    bool isLoggedIn = false;
+    std::string username, password;
+
+    while (!isLoggedIn) {
+        int bytesReceived = recv(clientSocket, buffer, 1024, 0);
+        if (bytesReceived == SOCKET_ERROR || bytesReceived == 0) {
+            std::cerr << "Client " << clientId << " disconnected.\n";
+            closesocket(clientSocket);
+            clients.erase(clientId);
+            return;
+        }
+
+        buffer[bytesReceived] = '\0';
+        std::istringstream iss(buffer);
+        std::string command;
+        iss >> command;
+
+        if (command == "SIGNUP") {
+            iss >> username >> password;
+            if (addUser(username, password)) {
+                isLoggedIn = true;
+                send(clientSocket, "SIGNUP_SUCCESS", 14, 0);
+            }
+            else {
+                send(clientSocket, "CREDENTIALS_EXISTS", 19, 0);
+            }
+        }
+        else if (command == "LOGIN") {
+            iss >> username >> password;
+            if (checkCredentials(username, password)) {
+                isLoggedIn = true;
+                send(clientSocket, "LOGIN_SUCCESS", 13, 0);
+            }
+            else {
+                send(clientSocket, "ACCESS_DENIED", 14, 0);
+            }
+        }
+    }
+
+    // Now handle chat messages
     while (true) {
         int bytesReceived = recv(clientSocket, buffer, 1024, 0);
         if (bytesReceived == SOCKET_ERROR || bytesReceived == 0) {
             std::cerr << "Client " << clientId << " disconnected.\n";
-            clients.erase(clientId);  // Remove client from map
-            break;
+            closesocket(clientSocket);
+            clients.erase(clientId);
+            return;
         }
 
-        buffer[bytesReceived] = '\0';  // Null-terminate the string
+        buffer[bytesReceived] = '\0';
         std::cout << "Client " << clientId << " sent: " << buffer << std::endl;
 
-        // Echo message back to client
-        send(clientSocket, buffer, bytesReceived, 0);
+        // Forward message to all clients except the sender
+        for (const auto& pair : clients) {
+            if (pair.first != clientId) {
+                send(pair.second, buffer, bytesReceived, 0);
+            }
+        }
     }
-
-    closesocket(clientSocket);
 }
 
-int main() {
-    WSADATA wsaData;
-
-    // Initialize Winsock
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-        std::cerr << "WSAStartup failed.\n";
-        return 1;
-    }
-
-    // Create socket for listening
-    SOCKET listeningSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (listeningSocket == INVALID_SOCKET) {
-        std::cerr << "Socket creation failed: " << WSAGetLastError() << std::endl;
-        WSACleanup();
-        return 1;
-    }
-
-    sockaddr_in serverAddress;
-    serverAddress.sin_family = AF_INET;
-    serverAddress.sin_port = htons(4002);
-    serverAddress.sin_addr.s_addr = INADDR_ANY;
-
-    // Bind the socket
-    if (bind(listeningSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) == SOCKET_ERROR) {
-        std::cerr << "Bind failed: " << WSAGetLastError() << std::endl;
-        closesocket(listeningSocket);
-        WSACleanup();
-        return 1;
-    }
-
-    // Listen on the socket
-    if (listen(listeningSocket, SOMAXCONN) == SOCKET_ERROR) {
-        std::cerr << "Listen failed: " << WSAGetLastError() << std::endl;
-        closesocket(listeningSocket);
-        WSACleanup();
-        return 1;
-    }
-
-    std::cout << "Server is listening...\n";
-
-    // Accept incoming connections
+void listenForClients(SOCKET listeningSocket) {
     while (true) {
         sockaddr_in client;
         int clientSize = sizeof(client);
@@ -80,11 +111,9 @@ int main() {
             continue;
         }
 
-        // Assign unique ID to client
         int clientId = ++clientCounter;
         clients[clientId] = clientSocket;
 
-        // Display client info
         char host[NI_MAXHOST];
         char service[NI_MAXSERV];
         ZeroMemory(host, NI_MAXHOST);
@@ -98,12 +127,51 @@ int main() {
             std::cout << "Client " << clientId << " connected from " << host << " on port " << ntohs(client.sin_port) << std::endl;
         }
 
-        // Handle client in a separate thread
         std::thread clientThread(handleClient, clientId, clientSocket);
-        clientThread.detach();  // Detach the thread to handle independently
+        clientThread.detach();
+    }
+}
+
+int main() {
+    WSADATA wsaData;
+
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        std::cerr << "WSAStartup failed.\n";
+        return 1;
     }
 
-    // Close listening socket
+    SOCKET listeningSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (listeningSocket == INVALID_SOCKET) {
+        std::cerr << "Socket creation failed: " << WSAGetLastError() << std::endl;
+        WSACleanup();
+        return 1;
+    }
+
+    sockaddr_in serverAddress;
+    serverAddress.sin_family = AF_INET;
+    serverAddress.sin_port = htons(4002);
+    serverAddress.sin_addr.s_addr = INADDR_ANY;
+
+    if (bind(listeningSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) == SOCKET_ERROR) {
+        std::cerr << "Bind failed: " << WSAGetLastError() << std::endl;
+        closesocket(listeningSocket);
+        WSACleanup();
+        return 1;
+    }
+
+    if (listen(listeningSocket, SOMAXCONN) == SOCKET_ERROR) {
+        std::cerr << "Listen failed: " << WSAGetLastError() << std::endl;
+        closesocket(listeningSocket);
+        WSACleanup();
+        return 1;
+    }
+
+    std::cout << "Server is listening...\n";
+
+    // Start listening for clients in a separate thread
+    std::thread listenThread(listenForClients, listeningSocket);
+    listenThread.join();
+
     closesocket(listeningSocket);
     WSACleanup();
 
