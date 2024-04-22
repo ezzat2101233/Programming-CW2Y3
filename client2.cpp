@@ -33,9 +33,36 @@ int main() {
         return 1;
     }
 
+    std::string choice;
+    std::cout << "Welcome to the Chat App!\n";
+    std::cout << "1. Sign Up\n";
+    std::cout << "2. Log In\n";
+    std::cout << "Choose an option (1 or 2): ";
+    getline(std::cin, choice);
+
     std::string command;
-    std::cout << "Enter 'SIGNUP <username> <password>' to sign up or 'LOGIN <username> <password>' to login: ";
-    getline(std::cin, command);
+    std::string username, password;
+
+    if (choice == "1") {
+        std::cout << "Enter a username: ";
+        getline(std::cin, username);
+        std::cout << "Enter a password: ";
+        getline(std::cin, password);
+        command = "SIGNUP " + username + " " + password;
+    }
+    else if (choice == "2") {
+        std::cout << "Enter your username: ";
+        getline(std::cin, username);
+        std::cout << "Enter your password: ";
+        getline(std::cin, password);
+        command = "LOGIN " + username + " " + password;
+    }
+    else {
+        std::cout << "Invalid choice.\n";
+        closesocket(clientSocket);
+        WSACleanup();
+        return 1;
+    }
 
     send(clientSocket, command.c_str(), command.length(), 0);
 

@@ -10,17 +10,36 @@
 #pragma comment(lib, "ws2_32.lib")
 
 std::map<int, SOCKET> clients;
+std::map<int, std::string> clientNames; // Map to store client names
 int clientCounter = 0;
+
 const std::string AUTH_FILE = "Auth.txt";
+
+std::string caesarCipher(const std::string& text, int shift) {
+    std::string result = text;
+    for (char& c : result) {
+        if (isalpha(c)) {
+            char base = islower(c) ? 'a' : 'A';
+            c = static_cast<char>((c - base + shift) % 26 + base);
+        }
+    }
+    return result;
+}
+
+std::string caesarDecipher(const std::string& text, int shift) {
+    return caesarCipher(text, 26 - shift); // Deciphering is just shifting back by 26 - shift
+}
 
 bool checkCredentials(const std::string& username, const std::string& password) {
     std::ifstream file(AUTH_FILE);
     std::string line;
+    std::string encryptedUsername = caesarCipher(username, 3);
+    std::string encryptedPassword = caesarCipher(password, 3);
     while (std::getline(file, line)) {
         std::istringstream iss(line);
         std::string storedUsername, storedPassword;
         if (iss >> storedUsername >> storedPassword) {
-            if (storedUsername == username && storedPassword == password) {
+            if (storedUsername == encryptedUsername && storedPassword == encryptedPassword) {
                 return true;
             }
         }
@@ -33,8 +52,16 @@ bool addUser(const std::string& username, const std::string& password) {
         return false;
     }
     std::ofstream file(AUTH_FILE, std::ios::app);
-    file << username << " " << password << std::endl;
+    std::string encryptedUsername = caesarCipher(username, 3);
+    std::string encryptedPassword = caesarCipher(password, 3);
+    file << encryptedUsername << " " << encryptedPassword << std::endl;
     return true;
+}
+
+void writeEncryptedChat(const std::string& clientName, const std::string& message) {
+    std::ofstream file("Encrypted.txt", std::ios::app);
+    std::string encryptedMessage = caesarCipher(message, 3);
+    file << clientName << ": " << encryptedMessage << std::endl;
 }
 
 void handleClient(int clientId, SOCKET clientSocket) {
@@ -42,6 +69,7 @@ void handleClient(int clientId, SOCKET clientSocket) {
     bool isLoggedIn = false;
     std::string username, password;
 
+    // Authentication loop
     while (!isLoggedIn) {
         int bytesReceived = recv(clientSocket, buffer, 1024, 0);
         if (bytesReceived == SOCKET_ERROR || bytesReceived == 0) {
@@ -78,7 +106,7 @@ void handleClient(int clientId, SOCKET clientSocket) {
         }
     }
 
-    // Now handle chat messages
+    // Message handling loop
     while (true) {
         int bytesReceived = recv(clientSocket, buffer, 1024, 0);
         if (bytesReceived == SOCKET_ERROR || bytesReceived == 0) {
@@ -89,16 +117,21 @@ void handleClient(int clientId, SOCKET clientSocket) {
         }
 
         buffer[bytesReceived] = '\0';
-        std::cout << "Client " << clientId << " sent: " << buffer << std::endl;
+        std::string clientMessage = buffer; // This is the plain text message
+        std::string clientName = clientNames[clientId];
 
-        // Forward message to all clients except the sender
+        // Write the encrypted message to the file
+        writeEncryptedChat(clientName, clientMessage);
+
+        // Send plain text message to other clients
         for (const auto& pair : clients) {
             if (pair.first != clientId) {
-                send(pair.second, buffer, bytesReceived, 0);
+                send(pair.second, clientMessage.c_str(), clientMessage.length(), 0);
             }
         }
     }
 }
+
 
 void listenForClients(SOCKET listeningSocket) {
     while (true) {
@@ -126,6 +159,9 @@ void listenForClients(SOCKET listeningSocket) {
             inet_ntop(AF_INET, &client.sin_addr, host, NI_MAXHOST);
             std::cout << "Client " << clientId << " connected from " << host << " on port " << ntohs(client.sin_port) << std::endl;
         }
+
+        std::string clientName = "Client " + std::to_string(clientId);
+        clientNames[clientId] = clientName;
 
         std::thread clientThread(handleClient, clientId, clientSocket);
         clientThread.detach();
@@ -166,9 +202,8 @@ int main() {
         return 1;
     }
 
-    std::cout << "Server is listening...\n";
+    std::cout << "Status: Active :)\n";
 
-    // Start listening for clients in a separate thread
     std::thread listenThread(listenForClients, listeningSocket);
     listenThread.join();
 
