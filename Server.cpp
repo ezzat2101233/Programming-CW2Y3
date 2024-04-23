@@ -9,12 +9,14 @@
 
 #pragma comment(lib, "ws2_32.lib")
 
+// Global maps to store connected clients and their names
 std::map<int, SOCKET> clients;
-std::map<int, std::string> clientNames; // Map to store client names
+std::map<int, std::string> clientNames;
 int clientCounter = 0;
 
 const std::string AUTH_FILE = "Auth.txt";
 
+// Caesar cipher for encryption
 std::string caesarCipher(const std::string& text, int shift) {
     std::string result = text;
     for (char& c : result) {
@@ -26,10 +28,12 @@ std::string caesarCipher(const std::string& text, int shift) {
     return result;
 }
 
+// Caesar cipher for decryption
 std::string caesarDecipher(const std::string& text, int shift) {
     return caesarCipher(text, 26 - shift); // Deciphering is just shifting back by 26 - shift
 }
 
+// Check user credentials
 bool checkCredentials(const std::string& username, const std::string& password) {
     std::ifstream file(AUTH_FILE);
     std::string line;
@@ -47,6 +51,7 @@ bool checkCredentials(const std::string& username, const std::string& password) 
     return false;
 }
 
+// Add a new user
 bool addUser(const std::string& username, const std::string& password) {
     if (checkCredentials(username, password)) {
         return false;
@@ -58,12 +63,14 @@ bool addUser(const std::string& username, const std::string& password) {
     return true;
 }
 
+// Write encrypted chat to file
 void writeEncryptedChat(const std::string& clientName, const std::string& message) {
     std::ofstream file("Encrypted.txt", std::ios::app);
     std::string encryptedMessage = caesarCipher(message, 3);
     file << clientName << ": " << encryptedMessage << std::endl;
 }
 
+// Handle client connection and communication
 void handleClient(int clientId, SOCKET clientSocket) {
     char buffer[1024];
     bool isLoggedIn = false;
@@ -132,7 +139,7 @@ void handleClient(int clientId, SOCKET clientSocket) {
     }
 }
 
-
+// Listen for incoming client connections
 void listenForClients(SOCKET listeningSocket) {
     while (true) {
         sockaddr_in client;
@@ -171,11 +178,13 @@ void listenForClients(SOCKET listeningSocket) {
 int main() {
     WSADATA wsaData;
 
+    // Initialize Winsock
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
         std::cerr << "WSAStartup failed.\n";
         return 1;
     }
 
+    // Create a listening socket
     SOCKET listeningSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (listeningSocket == INVALID_SOCKET) {
         std::cerr << "Socket creation failed: " << WSAGetLastError() << std::endl;
@@ -188,6 +197,7 @@ int main() {
     serverAddress.sin_port = htons(4002);
     serverAddress.sin_addr.s_addr = INADDR_ANY;
 
+    // Bind the socket
     if (bind(listeningSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) == SOCKET_ERROR) {
         std::cerr << "Bind failed: " << WSAGetLastError() << std::endl;
         closesocket(listeningSocket);
@@ -195,6 +205,7 @@ int main() {
         return 1;
     }
 
+    // Listen for incoming connections
     if (listen(listeningSocket, SOMAXCONN) == SOCKET_ERROR) {
         std::cerr << "Listen failed: " << WSAGetLastError() << std::endl;
         closesocket(listeningSocket);
@@ -204,6 +215,7 @@ int main() {
 
     std::cout << "Status: Active :)\n";
 
+    // Start listening for clients in a separate thread
     std::thread listenThread(listenForClients, listeningSocket);
     listenThread.join();
 

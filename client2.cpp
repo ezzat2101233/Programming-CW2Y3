@@ -9,11 +9,13 @@
 int main() {
     WSADATA wsaData;
 
+    // Initialize Winsock
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
         std::cerr << "WSAStartup failed.\n";
         return 1;
     }
 
+    // Create a socket
     SOCKET clientSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (clientSocket == INVALID_SOCKET) {
         std::cerr << "Socket creation failed: " << WSAGetLastError() << std::endl;
@@ -26,6 +28,7 @@ int main() {
     serverAddress.sin_port = htons(4002);
     inet_pton(AF_INET, "127.0.0.1", &serverAddress.sin_addr);
 
+    // Connect to the server
     if (connect(clientSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) == SOCKET_ERROR) {
         std::cerr << "Connection failed: " << WSAGetLastError() << std::endl;
         closesocket(clientSocket);
@@ -89,7 +92,7 @@ int main() {
         return 1;
     }
 
-    // Now handle chat messages
+    // Handle chat messages
     while (true) {
         std::string userInput;
         std::cout << "Enter a message to send to the server (type 'exit' to quit): ";
@@ -114,7 +117,7 @@ int main() {
         }
 
         buffer[bytesReceived] = '\0';
-        std::cout << "Server echoed: " << buffer << std::endl;
+        std::cout << "Client 2: " << buffer << std::endl;
     }
 
     closesocket(clientSocket);
